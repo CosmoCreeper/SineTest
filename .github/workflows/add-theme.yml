@@ -1,0 +1,157 @@
+name: Add Theme
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  addThemePR:
+    permissions: write-all
+    name: Add a theme
+    runs-on: ubuntu-latest
+    if: startsWith(github.event.issue.title, '[add-theme]:')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Parse issue
+        id: issue-parser
+        uses: stefanbuck/github-issue-parser@v3
+        with:
+          template-path: .github/ISSUE_TEMPLATE/add-theme.yml
+
+      - name: Export parsed payload into variables
+        id: export
+        run: |
+          echo "THEME_HOMEPAGE=${{ fromJson(steps.issue-parser.outputs.jsonString)['homepage'] }}" >> $GITHUB_ENV
+          echo "THEME_AUTHOR=${{ github.event.issue.user.login }}" >> $GITHUB_ENV
+
+      - name: Create update script
+        run: |
+          cat << 'EOF' > update_marketplace.py
+          import json
+          import re
+          import urllib.request
+
+          def get_repo_info(homepage):
+              # Extract user/repo from homepage URL
+              pattern = r'github\.com/([^/]+)/([^/]+)'
+              match = re.search(pattern, homepage)
+              if not match:
+                  raise ValueError("Invalid GitHub repository URL")
+              owner, repo = match.groups()
+              
+              # Get theme.json to extract theme ID
+              theme_json_url = f"https://raw.githubusercontent.com/{owner}/{repo}/main/theme.json"
+              with urllib.request.urlopen(theme_json_url) as response:
+                  theme_data = json.loads(response.read().decode())
+              
+              return owner, theme_data.get("id"), f"{owner}/{repo}"
+
+          def check_ownership(homepage, issue_creator):
+              owner, _, _ = get_repo_info(homepage)
+              if owner.lower() != issue_creator.lower():
+                  raise ValueError(
+                      f"You must be the owner of the repository ({owner}) to add a theme. "
+                      f"Please provide proof to the repository owner that you are authorized to submit this theme."
+                  )
+
+          def update_marketplace():
+              # Read latest.json
+              with open("latest.json", "r") as f:
+                  data = json.load(f)
+              
+              # Get theme ID and user/repo
+              homepage = "${{ env.THEME_HOMEPAGE }}"
+              issue_creator = "${{ env.THEME_AUTHOR }}"
+              
+              # Validate ownership
+              check_ownership(homepage, issue_creator)
+              
+              # Get theme info
+              _, theme_id, user_repo = get_repo_info(homepage)
+              
+              # Update marketplace
+              if "marketplace" not in data:
+                  data["marketplace"] = {}
+              data["marketplace"][theme_id] = user_repo
+              
+              # Write updated latest.json
+              with open("latest.json", "w") as f:
+                  json.dump(data, f, indent=2)
+
+          if __name__ == "__main__":
+              try:
+                  update_marketplace()
+              except Exception as e:
+                  print(f"Error: {str(e)}")
+                  exit(1)
+          EOF
+
+      - name: Run update script
+        run: python update_marketplace.py 2> error.log
+
+      - name: Export error output
+        if: failure()
+        run: |
+          cat error.log
+          echo "ERROR_OUTPUT=$(cat error.log)" >> $GITHUB_ENV
+
+      - name: Show error message
+        if: failure()
+        uses: peter-evans/close-issue@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          comment: |
+            # Error adding theme
+
+            Sorry, there was an error processing your theme submission:
+
+            > ${{ env.NETWORK_OUTPUT }}
+
+            Please check your homepage URL and ensure you are the repository owner or have authorization. If you believe this is an error, contact the maintainers.
+
+      - name: Setup Git
+        if: success()
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create Pull Request
+        if: success()
+        uses: peter-evans/create-pull-request@v6
+        with:
+          add-paths: latest.json
+          labels: staged
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "Add theme from ${{ env.THEME_HOMEPAGE }}"
+          delete-branch: true
+          title: "Add theme from ${{ env.THEME_HOMEPAGE }}"
+          body: |
+            # Add theme
+
+            This PR adds a new theme to the marketplace.
+
+            ## Theme Details
+            * **Homepage**: ${{ env.THEME_HOMEPAGE }}
+            * **Author**: @${{ env.THEME_AUTHOR }}
+          branch: add-theme-${{ github.event.issue.number }}
+          base: main
+
+      - name: Close Issue
+        if: success()
+        uses: peter-evans/close-issue@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          comment: |
+            # Thank you for your contribution! :tada:
+
+            Your theme has been successfully submitted. The maintainers will review it and get back to you soon.
+
+            Here are some details about your submission:
+            * Your theme has been requested into [this PR](https://github.com/${{ github.repository }}/pull/${{ env.PULL_REQUEST_NUMBER }}).
+            * It has been created into the [add-theme-${{ github.event.issue.number }} branch](https://github.com/${{ github.repository }}/tree/add-theme-${{ github.event.issue.number }}).
