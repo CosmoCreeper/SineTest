@@ -32,6 +32,7 @@ jobs:
         run: |
           echo "THEME_HOMEPAGE=${{ fromJson(steps.issue-parser.outputs.jsonString)['homepage'] }}" >> $GITHUB_ENV
           echo "THEME_AUTHOR=${{ github.event.issue.user.login }}" >> $GITHUB_ENV
+          echo "THEME_NAME=${{ 
 
       - name: Create ownership check script
         run: |
@@ -98,14 +99,19 @@ jobs:
               with urllib.request.urlopen(theme_json_url) as response:
                   theme_data = json.loads(response.read().decode())
               
-              return theme_data.get("id"), f"{owner}/{repo}"
+              theme_id = theme_data.get("id")
+              theme_name = theme_data.get("name")
+              if not theme_id or not theme_name:
+                  raise ValueError("theme.json must contain 'id' and 'name' properties")
+              
+              return theme_id, theme_name, f"{owner}/{repo}"
 
           def update_marketplace():
               with open("latest.json", "r") as f:
                   data = json.load(f)
               
               homepage = "${{ env.THEME_HOMEPAGE }}"
-              theme_id, user_repo = get_repo_info(homepage)
+              theme_id, theme_name, user_repo = get_repo_info(homepage)
               
               if "marketplace" not in data:
                   data["marketplace"] = {}
@@ -113,6 +119,9 @@ jobs:
               
               with open("latest.json", "w") as f:
                   json.dump(data, f, indent=2)
+              
+              # Output theme name for use in PR
+              print(f"THEME_NAME={theme_name}")
 
           if __name__ == "__main__":
               try:
@@ -125,6 +134,12 @@ jobs:
       - name: Run update script
         if: env.OWNERSHIP_FAILED != 'true'
         run: python update_marketplace.py 2> error.log
+
+      - name: Export theme name
+        if: env.OWNERSHIP_FAILED != 'true'
+        run: |
+          THEME_NAME=$(grep "THEME_NAME=" update_output.txt | cut -d'=' -f2-)
+          echo "THEME_NAME=$THEME_NAME" >> $GITHUB_ENV
 
       - name: Export error output
         if: failure() && env.OWNERSHIP_FAILED != 'true'
@@ -159,15 +174,16 @@ jobs:
           add-paths: latest.json
           labels: staged
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "Add theme from ${{ env.THEME_HOMEPAGE }}"
+          commit-message: "Add theme: ${{ env.THEME_NAME }}"
           delete-branch: true
-          title: "Add theme from ${{ env.THEME_HOMEPAGE }}"
+          title: "Add theme: ${{ env.THEME_NAME }}"
           body: |
-            # Add theme
+            # Add theme: ${{ env.THEME_NAME }}
 
             This PR adds a new theme to the marketplace.
 
             ## Theme Details
+            * **Name**: ${{ env.THEME_NAME }}
             * **Homepage**: ${{ env.THEME_HOMEPAGE }}
             * **Author**: @${{ env.THEME_AUTHOR }}
           branch: add-theme-${{ github.event.issue.number }}
