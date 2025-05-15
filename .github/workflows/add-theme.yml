@@ -223,12 +223,6 @@ jobs:
         if: env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true'
         run: python update_marketplace.py 2> error.log
 
-      - name: Export theme name
-        if: env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true'
-        run: |
-          THEME_NAME=$(grep "THEME_NAME=" update_output.txt | cut -d'=' -f2-)
-          echo "THEME_NAME=${{  }}" >> $GITHUB_ENV
-
       - name: Export error output
         if: failure() && env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true'
         run: |
