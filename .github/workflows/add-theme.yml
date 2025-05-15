@@ -79,7 +79,6 @@ jobs:
 
             *If you believe you have authorization, please create an issue about it here and the moderators will take care of it soon.*
 
-            - name: Create duplicate check script
       - name: Create duplicate check script
         if: env.OWNERSHIP_FAILED != 'true'
         run: |
