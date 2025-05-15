@@ -1,3 +1,5 @@
 {
-  "marketplace": {}
+  "marketplace": {
+    "transparent-newtab": "CosmoCreeper/TransparentNewTab"
+  }
 }
