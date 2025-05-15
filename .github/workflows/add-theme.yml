@@ -32,6 +32,7 @@ jobs:
         run: |
           echo "THEME_HOMEPAGE=${{ fromJson(steps.issue-parser.outputs.jsonString)['homepage'] }}" >> $GITHUB_ENV
           echo "THEME_AUTHOR=${{ github.event.issue.user.login }}" >> $GITHUB_ENV
+          echo "THEME_NAME=$(echo '${{ github.event.issue.title }}' | sed 's/^\[add-theme\]://' | xargs)" >> $GITHUB_ENV
 
       - name: Create ownership check script
         run: |
@@ -184,22 +185,24 @@ jobs:
               owner, repo = match.groups()
               
               theme_json_url = f"https://raw.githubusercontent.com/{owner}/{repo}/main/theme.json"
-              with urllib.request.urlopen(theme_json_url) as response:
-                  theme_data = json.loads(response.read().decode())
+              try:
+                  with urllib.request.urlopen(theme_json_url) as response:
+                      theme_data = json.loads(response.read().decode())
+              except Exception as e:
+                  raise ValueError(f"Failed to fetch theme.json: {str(e)}")
               
               theme_id = theme_data.get("id")
-              theme_name = theme_data.get("name")
-              if not theme_id or not theme_name:
-                  raise ValueError("theme.json must contain 'id' and 'name' properties")
+              if not theme_id:
+                  raise ValueError("theme.json must contain 'id' property")
               
-              return theme_id, theme_name, f"{owner}/{repo}"
+              return theme_id, f"{owner}/{repo}"
 
           def update_marketplace():
               with open("latest.json", "r") as f:
                   data = json.load(f)
               
               homepage = "${{ env.THEME_HOMEPAGE }}"
-              theme_id, theme_name, user_repo = get_repo_info(homepage)
+              theme_id, user_repo = get_repo_info(homepage)
               
               if "marketplace" not in data:
                   data["marketplace"] = {}
@@ -207,9 +210,6 @@ jobs:
               
               with open("latest.json", "w") as f:
                   json.dump(data, f, indent=2)
-              
-              # Output theme name for use in PR
-              print(f"THEME_NAME={theme_name}")
 
           if __name__ == "__main__":
               try:
@@ -227,7 +227,7 @@ jobs:
         if: env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true'
         run: |
           THEME_NAME=$(grep "THEME_NAME=" update_output.txt | cut -d'=' -f2-)
-          echo "THEME_NAME=$THEME_NAME" >> $GITHUB_ENV
+          echo "THEME_NAME=${{  }}" >> $GITHUB_ENV
 
       - name: Export error output
         if: failure() && env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true'
@@ -247,7 +247,7 @@ jobs:
 
             > ${{ env.ERROR_OUTPUT }}
 
-            Please check your homepage URL and ensure the repository contains a valid theme.json file. If you believe this is an error, contact the maintainers.
+            Please check your homepage URL and ensure the repository contains a valid theme.json file with an 'id' property. If you believe this is an error, contact the maintainers.
 
       - name: Setup Git
         if: success() && env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true'
