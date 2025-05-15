@@ -5,7 +5,10 @@ on:
 
 jobs:
   addThemePR:
-    permissions: write-all
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
     name: Add a theme
     runs-on: ubuntu-latest
     if: startsWith(github.event.issue.title, '[add-theme]:')
@@ -30,7 +33,55 @@ jobs:
           echo "THEME_HOMEPAGE=${{ fromJson(steps.issue-parser.outputs.jsonString)['homepage'] }}" >> $GITHUB_ENV
           echo "THEME_AUTHOR=${{ github.event.issue.user.login }}" >> $GITHUB_ENV
 
+      - name: Create ownership check script
+        run: |
+          cat << 'EOF' > check_ownership.py
+          import re
+          import sys
+
+          def check_ownership(homepage, issue_creator):
+              # Extract user/repo from homepage URL
+              pattern = r'github\.com/([^/]+)/([^/]+)'
+              match = re.search(pattern, homepage)
+              if not match:
+                  print("Invalid GitHub repository URL")
+                  sys.exit(1)
+              owner, _ = match.groups()
+              
+              if owner.lower() != issue_creator.lower():
+                  print(
+                      f"You must be the owner of the repository ({owner}) to add a theme. "
+                      f"Please provide proof to the repository owner that you are authorized to submit this theme."
+                  )
+                  sys.exit(2)
+
+          if __name__ == "__main__":
+              check_ownership("${{ env.THEME_HOMEPAGE }}", "${{ env.THEME_AUTHOR }}")
+          EOF
+
+      - name: Run ownership check
+        id: ownership-check
+        run: python check_ownership.py > ownership_output.txt 2>&1 || echo "OWNERSHIP_FAILED=true" >> $GITHUB_ENV
+
+      - name: Capture ownership output
+        if: env.OWNERSHIP_FAILED == 'true'
+        run: |
+          echo "OWNERSHIP_MESSAGE=$(cat ownership_output.txt)" >> $GITHUB_ENV
+
+      - name: Close issue for ownership failure
+        if: env.OWNERSHIP_FAILED == 'true'
+        uses: peter-evans/close-issue@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          comment: |
+            # Theme submission not authorized
+
+            ${{ env.OWNERSHIP_MESSAGE }}
+
+            If you believe you have authorization, please coordinate with the repository owner and try again.
+
       - name: Create update script
+        if: env.OWNERSHIP_FAILED != 'true'
         run: |
           cat << 'EOF' > update_marketplace.py
           import json
@@ -38,49 +89,29 @@ jobs:
           import urllib.request
 
           def get_repo_info(homepage):
-              # Extract user/repo from homepage URL
               pattern = r'github\.com/([^/]+)/([^/]+)'
               match = re.search(pattern, homepage)
               if not match:
                   raise ValueError("Invalid GitHub repository URL")
               owner, repo = match.groups()
               
-              # Get theme.json to extract theme ID
               theme_json_url = f"https://raw.githubusercontent.com/{owner}/{repo}/main/theme.json"
               with urllib.request.urlopen(theme_json_url) as response:
                   theme_data = json.loads(response.read().decode())
               
-              return owner, theme_data.get("id"), f"{owner}/{repo}"
-
-          def check_ownership(homepage, issue_creator):
-              owner, _, _ = get_repo_info(homepage)
-              if owner.lower() != issue_creator.lower():
-                  raise ValueError(
-                      f"You must be the owner of the repository ({owner}) to add a theme. "
-                      f"Please provide proof to the repository owner that you are authorized to submit this theme."
-                  )
+              return theme_data.get("id"), f"{owner}/{repo}"
 
           def update_marketplace():
-              # Read latest.json
               with open("latest.json", "r") as f:
                   data = json.load(f)
               
-              # Get theme ID and user/repo
               homepage = "${{ env.THEME_HOMEPAGE }}"
-              issue_creator = "${{ env.THEME_AUTHOR }}"
+              theme_id, user_repo = get_repo_info(homepage)
               
-              # Validate ownership
-              check_ownership(homepage, issue_creator)
-              
-              # Get theme info
-              _, theme_id, user_repo = get_repo_info(homepage)
-              
-              # Update marketplace
               if "marketplace" not in data:
                   data["marketplace"] = {}
               data["marketplace"][theme_id] = user_repo
               
-              # Write updated latest.json
               with open("latest.json", "w") as f:
                   json.dump(data, f, indent=2)
 
@@ -93,16 +124,17 @@ jobs:
           EOF
 
       - name: Run update script
+        if: env.OWNERSHIP_FAILED != 'true'
         run: python update_marketplace.py 2> error.log
 
       - name: Export error output
-        if: failure()
+        if: failure() && env.OWNERSHIP_FAILED != 'true'
         run: |
           cat error.log
           echo "ERROR_OUTPUT=$(cat error.log)" >> $GITHUB_ENV
 
       - name: Show error message
-        if: failure()
+        if: failure() && env.OWNERSHIP_FAILED != 'true'
         uses: peter-evans/close-issue@v3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -111,18 +143,18 @@ jobs:
 
             Sorry, there was an error processing your theme submission:
 
-            > ${{ env.NETWORK_OUTPUT }}
+            > ${{ env.ERROR_OUTPUT }}
 
-            Please check your homepage URL and ensure you are the repository owner or have authorization. If you believe this is an error, contact the maintainers.
+            Please check your homepage URL and ensure the repository contains a valid theme.json file. If you believe this is an error, contact the maintainers.
 
       - name: Setup Git
-        if: success()
+        if: success() && env.OWNERSHIP_FAILED != 'true'
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Create Pull Request
-        if: success()
+        if: success() && env.OWNERSHIP_FAILED != 'true'
         uses: peter-evans/create-pull-request@v6
         with:
           add-paths: latest.json
@@ -143,7 +175,7 @@ jobs:
           base: main
 
       - name: Close Issue
-        if: success()
+        if: success() && env.OWNERSHIP_FAILED != 'true'
         uses: peter-evans/close-issue@v3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
