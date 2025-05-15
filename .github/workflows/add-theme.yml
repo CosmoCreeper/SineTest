@@ -50,8 +50,7 @@ jobs:
               
               if owner.lower() != issue_creator.lower():
                   print(
-                      f"You must be the owner of the repository ({owner}) to add a theme. "
-                      f"Please provide proof to the repository owner that you are authorized to submit this theme."
+                      f"You must be the owner of the repository ({owner}) to add a theme."
                   )
                   sys.exit(2)
 
@@ -78,7 +77,7 @@ jobs:
 
             ${{ env.OWNERSHIP_MESSAGE }}
 
-            If you believe you have authorization, please coordinate with the repository owner and try again.
+            *If you believe you have authorization, please create an issue about it here and the moderators will take care of it soon.*
 
       - name: Create update script
         if: env.OWNERSHIP_FAILED != 'true'
