@@ -32,7 +32,6 @@ jobs:
         run: |
           echo "THEME_HOMEPAGE=${{ fromJson(steps.issue-parser.outputs.jsonString)['homepage'] }}" >> $GITHUB_ENV
           echo "THEME_AUTHOR=${{ github.event.issue.user.login }}" >> $GITHUB_ENV
-          echo "THEME_NAME=${{ 
 
       - name: Create ownership check script
         run: |
