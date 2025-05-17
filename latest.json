@@ -1,3 +1,5 @@
 {
-  "marketplace": {}
+  "marketplace": {
+    "testmod": "CosmoCreeper/TestMod"
+  }
 }
