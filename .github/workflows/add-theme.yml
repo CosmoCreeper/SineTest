@@ -9,7 +9,7 @@ jobs:
     # Note: pull-requests: write includes read permissions (per GitHub Actions docs)
     permissions:
       contents: write      # To update latest.json
-      issues: write        # To close issues
+      issues: write        # To close issues and post comments
       pull-requests: write # To read/create PRs
     name: Add a theme
     runs-on: ubuntu-latest
@@ -87,7 +87,7 @@ jobs:
 
       - name: Close issue for ownership failure
         if: env.OWNERSHIP_FAILED == 'true'
-        uses: peter-evans/close-issue@v3
+        uses: peter-evans/close-issue@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           comment: |
@@ -228,7 +228,7 @@ jobs:
 
       - name: Close issue for duplicate submission
         if: env.OWNERSHIP_FAILED != 'true' && (env.DUPLICATE_FOUND == 'true' || env.DUPLICATE_CHECK_FAILED == 'true')
-        uses: peter-evans/close-issue@v3
+        uses: peter-evans/close-issue@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           comment: |
@@ -330,7 +330,7 @@ jobs:
 
       - name: Close issue for existing theme
         if: env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true' && env.DUPLICATE_CHECK_FAILED != 'true' && (env.EXISTING_FOUND == 'true' || env.EXISTING_CHECK_FAILED == 'true')
-        uses: peter-evans/close-issue@v3
+        uses: peter-evans/close-issue@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           comment: |
@@ -430,7 +430,7 @@ jobs:
 
       - name: Show error message
         if: failure() && env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true' && env.DUPLICATE_CHECK_FAILED != 'true' && env.EXISTING_FOUND != 'true' && env.EXISTING_CHECK_FAILED != 'true'
-        uses: peter-evans/close-issue@v3
+        uses: peter-evans/close-issue@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           comment: |
@@ -470,23 +470,37 @@ jobs:
           branch: add-theme-${{ github.event.issue.number }}
           base: main
 
-      - name: Debug Close Issue
+      - name: Debug Comment Issue
         if: success() && env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true' && env.DUPLICATE_CHECK_FAILED != 'true' && env.EXISTING_FOUND != 'true' && env.EXISTING_CHECK_FAILED != 'true'
         run: |
-          echo "DEBUG: Preparing to close issue with success message"
+          echo "DEBUG: Preparing to comment on issue"
           echo "DEBUG: THEME_NAME=${{ env.THEME_NAME }}"
           echo "DEBUG: GITHUB_TOKEN length=${#GITHUB_TOKEN}"
+          echo "DEBUG: Comment content:"
+          echo "# Thank you for your contribution! :tada:"
+          echo "Your theme \"${{ env.THEME_NAME }}\" has been successfully submitted. The maintainers will review it and get back to you soon."
+          echo "Here are some details about your submission:"
+          echo "* Your theme has been requested into a new pull request."
+          echo "* It has been created in the branch [add-theme-${{ github.event.issue.number }}](https://github.com/${{ github.repository }}/tree/add-theme-${{ github.event.issue.number }})."
+
+      - name: Comment on Issue
+        if: success() && env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true' && env.DUPLICATE_CHECK_FAILED != 'true' && env.EXISTING_FOUND != 'true' && env.EXISTING_CHECK_FAILED != 'true'
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -d "{\"body\": \"# Thank you for your contribution! :tada:\n\nYour theme \\\"${{ env.THEME_NAME }}\\\" has been successfully submitted. The maintainers will review it and get back to you soon.\n\nHere are some details about your submission:\n* Your theme has been requested into a new pull request.\n* It has been created in the branch [add-theme-${{ github.event.issue.number }}](https://github.com/${{ github.repository }}/tree/add-theme-${{ github.event.issue.number }}).\"}" \
+            https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments > comment_response.txt
+          if [ $? -eq 0 ]; then
+            echo "DEBUG: Comment posted successfully"
+            cat comment_response.txt
+          else
+            echo "ERROR: Failed to post comment"
+            cat comment_response.txt
+          fi
 
       - name: Close Issue
         if: success() && env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true' && env.DUPLICATE_CHECK_FAILED != 'true' && env.EXISTING_FOUND != 'true' && env.EXISTING_CHECK_FAILED != 'true'
-        uses: peter-evans/close-issue@v3
+        uses: peter-evans/close-issue@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          comment: |
-            # Thank you for your contribution! :tada:
-
-            Your theme "${{ env.THEME_NAME }}" has been successfully submitted. The maintainers will review it and get back to you soon.
-
-            Here are some details about your submission:
-            * Your theme has been requested into a new pull request.
-            * It has been created in the branch [add-theme-${{ github.event.issue.number }}](https://github.com/${{ github.repository }}/tree/add-theme-${{ github.event.issue.number }}).
