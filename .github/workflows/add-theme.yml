@@ -25,11 +25,15 @@ jobs:
 
       - name: Debug GITHUB_TOKEN permissions
         run: |
-          echo "DEBUG: Checking GITHUB_TOKEN permissions"
-          curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-               -H "Accept: application/vnd.github.v3+json" \
-               https://api.github.com/rate_limit | jq '.resources | { core: .core, pull_requests: .pulls }'
-          echo "DEBUG: Token length: ${#GITHUB_TOKEN}"
+          echo "DEBUG: Checking GITHUB_TOKEN presence"
+          if [ -z "${{ secrets.GITHUB_TOKEN }}" ]; then
+            echo "ERROR: GITHUB_TOKEN is not set"
+          else
+            echo "DEBUG: GITHUB_TOKEN is set (length: ${#GITHUB_TOKEN})"
+            curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+                 -H "Accept: application/vnd.github.v3+json" \
+                 https://api.github.com/rate_limit | jq '.resources | { core: .core, pull_requests: .pulls }'
+          fi
 
       - name: Parse issue
         id: issue-parser
@@ -142,7 +146,7 @@ jobs:
               api_url = f"https://api.github.com/repos/{repo}/pulls?state=open"
               token = os.getenv('GITHUB_TOKEN')
               if not token:
-                  print("Error: GITHUB_TOKEN is not set", file=sys.stderr)
+                  print("Error: GITHUB_TOKEN is not set. Ensure the workflow has access to secrets.GITHUB_TOKEN and repository permissions allow Actions.", file=sys.stderr)
                   raise ValueError("GITHUB_TOKEN is not set")
               print(f"DEBUG: GITHUB_TOKEN is set (length: {len(token)})")
               headers = {
@@ -205,6 +209,8 @@ jobs:
 
       - name: Run duplicate check
         if: env.OWNERSHIP_FAILED != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python check_duplicate.py > duplicate_output.txt 2> error.log
           if [ $? -ne 0 ]; then
@@ -220,7 +226,8 @@ jobs:
             echo "DUPLICATE_FOUND=true" >> $GITHUB_ENV
             echo "DUPLICATE_MESSAGE=$DUPLICATE_OUTPUT" >> $GITHUB_ENV
           elif [ "$DUPLICATE_CHECK_FAILED" = "true" ]; then
-            echo "DUPLICATE_MESSAGE=Error processing theme: $ERROR_LOG" >> $GITHUB_ENV
+            ERROR_LOG_SANITIZED=$(echo "$ERROR_LOG" | tr -d '\n\r' | sed 's/[^a-zA-Z0-9:._-]/ /g')
+            echo "DUPLICATE_MESSAGE=Error processing theme: $ERROR_LOG_SANITIZED" >> $GITHUB_ENV
           else
             echo "DUPLICATE_MESSAGE=No duplicates found" >> $GITHUB_ENV
           fi
@@ -237,7 +244,7 @@ jobs:
 
             > ${{ env.DUPLICATE_MESSAGE }}
 
-            If this is a duplicate, please check existing open pull requests. Otherwise, verify your homepage URL is in the format 'https://github.com/owner/repo' and your theme.json contains a valid 'id' property. If the error mentions '401 Unauthorized', ensure the repository's Actions settings allow GitHub Actions to read pull requests (Settings > Actions > General > Workflow permissions). For organization repositories, check Organization Settings > Actions > General. Alternatively, contact the maintainers or review the workflow logs.
+            If this is a duplicate, please check existing open pull requests. Otherwise, verify your homepage URL is in the format 'https://github.com/owner/repo' and your theme.json contains a valid 'id' property. If the error mentions 'GITHUB_TOKEN is not set' or '401 Unauthorized', ensure the repository's Actions settings allow GitHub Actions to read pull requests (Settings > Actions > General > Workflow permissions). For organization repositories, check Organization Settings > Actions > General. Alternatively, contact the maintainers or review the workflow logs.
 
       - name: Create existing theme check script
         if: env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true' && env.DUPLICATE_CHECK_FAILED != 'true'
@@ -325,7 +332,8 @@ jobs:
             echo "EXISTING_FOUND=true" >> $GITHUB_ENV
             echo "EXISTING_MESSAGE=$EXISTING_OUTPUT" >> $GITHUB_ENV
           elif [ "$EXISTING_CHECK_FAILED" = "true" ]; then
-            echo "EXISTING_MESSAGE=Error processing theme: $ERROR_LOG" >> $GITHUB_ENV
+            ERROR_LOG_SANITIZED=$(echo "$ERROR_LOG" | tr -d '\n\r' | sed 's/[^a-zA-Z0-9:._-]/ /g')
+            echo "EXISTING_MESSAGE=Error processing theme: $ERROR_LOG_SANITIZED" >> $GITHUB_ENV
           else
             echo "EXISTING_MESSAGE=No existing theme found" >> $GITHUB_ENV
           fi
@@ -445,7 +453,7 @@ jobs:
 
             > ${{ env.ERROR_OUTPUT || 'Unknown error occurred, please check workflow logs' }}
 
-            Please verify your homepage URL is in the format 'https://github.com/owner/repo' and your theme.json contains a valid 'id' property. If the error mentions '401 Unauthorized', ensure the repository's Actions settings allow GitHub Actions to read pull requests (Settings > Actions > General > Workflow permissions). For organization repositories, check Organization Settings > Actions > General. Contact the maintainers or review the workflow logs.
+            Please verify your homepage URL is in the format 'https://github.com/owner/repo' and your theme.json contains a valid 'id' property. If the error mentions 'GITHUB_TOKEN is not set' or '401 Unauthorized', ensure the repository's Actions settings allow GitHub Actions to read pull requests (Settings > Actions > General > Workflow permissions). For organization repositories, check Organization Settings > Actions > General. Contact the maintainers or review the workflow logs.
 
       - name: Setup Git
         if: success() && env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true' && env.DUPLICATE_CHECK_FAILED != 'true' && env.EXISTING_FOUND != 'true' && env.EXISTING_CHECK_FAILED != 'true'
