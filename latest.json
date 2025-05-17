@@ -1,5 +1,6 @@
 {
   "marketplace": {
-    "testmod": "CosmoCreeper/TestMod"
+    "testmod": "CosmoCreeper/TestMod",
+    "advanced-tab-groups": "Anoms12/Advanced-Tab-Groups"
   }
 }
