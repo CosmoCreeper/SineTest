@@ -35,6 +35,13 @@ jobs:
                  https://api.github.com/rate_limit | jq '.resources | { core: .core, pull_requests: .pulls }'
           fi
 
+      - name: Verify close-issue version
+        run: |
+          echo "DEBUG: Checking available releases for peter-evans/close-issue"
+          curl -s -H "Accept: application/vnd.github.v3+json" \
+               https://api.github.com/repos/peter-evans/close-issue/releases | jq '[.[] | {tag_name: .tag_name, published_at: .published_at}]'
+          echo "DEBUG: Using peter-evans/close-issue@v3 (latest stable version)"
+
       - name: Parse issue
         id: issue-parser
         uses: stefanbuck/github-issue-parser@v3
@@ -87,7 +94,7 @@ jobs:
 
       - name: Close issue for ownership failure
         if: env.OWNERSHIP_FAILED == 'true'
-        uses: peter-evans/close-issue@v4
+        uses: peter-evans/close-issue@v3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           comment: |
@@ -228,7 +235,7 @@ jobs:
 
       - name: Close issue for duplicate submission
         if: env.OWNERSHIP_FAILED != 'true' && (env.DUPLICATE_FOUND == 'true' || env.DUPLICATE_CHECK_FAILED == 'true')
-        uses: peter-evans/close-issue@v4
+        uses: peter-evans/close-issue@v3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           comment: |
@@ -330,7 +337,7 @@ jobs:
 
       - name: Close issue for existing theme
         if: env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true' && env.DUPLICATE_CHECK_FAILED != 'true' && (env.EXISTING_FOUND == 'true' || env.EXISTING_CHECK_FAILED == 'true')
-        uses: peter-evans/close-issue@v4
+        uses: peter-evans/close-issue@v3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           comment: |
@@ -430,7 +437,7 @@ jobs:
 
       - name: Show error message
         if: failure() && env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true' && env.DUPLICATE_CHECK_FAILED != 'true' && env.EXISTING_FOUND != 'true' && env.EXISTING_CHECK_FAILED != 'true'
-        uses: peter-evans/close-issue@v4
+        uses: peter-evans/close-issue@v3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           comment: |
@@ -497,10 +504,27 @@ jobs:
           else
             echo "ERROR: Failed to post comment"
             cat comment_response.txt
+            echo "FALLBACK_MESSAGE=Failed to post success comment. Your theme '${{ env.THEME_NAME }}' was submitted, and a pull request was created. Please check the repository for details." >> $GITHUB_ENV
+          fi
+
+      - name: Fallback Comment on Issue
+        if: success() && env.FALLBACK_MESSAGE != ''
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -d "{\"body\": \"${{ env.FALLBACK_MESSAGE }}\"}" \
+            https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments > fallback_comment_response.txt
+          if [ $? -eq 0 ]; then
+            echo "DEBUG: Fallback comment posted successfully"
+            cat fallback_comment_response.txt
+          else
+            echo "ERROR: Failed to post fallback comment"
+            cat fallback_comment_response.txt
           fi
 
       - name: Close Issue
         if: success() && env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true' && env.DUPLICATE_CHECK_FAILED != 'true' && env.EXISTING_FOUND != 'true' && env.EXISTING_CHECK_FAILED != 'true'
-        uses: peter-evans/close-issue@v4
+        uses: peter-evans/close-issue@v3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
