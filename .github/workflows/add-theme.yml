@@ -41,15 +41,16 @@ jobs:
           import sys
 
           def check_ownership(homepage, issue_creator):
+              print(f"DEBUG: Checking ownership for homepage: {homepage}, creator: {issue_creator}")
               pattern = r'github\.com/([^/]+)/([^/]+)'
               match = re.search(pattern, homepage)
               if not match:
-                  print("Invalid GitHub repository URL")
+                  print("Error: Invalid GitHub repository URL")
                   sys.exit(1)
               owner, _ = match.groups()
               
               if owner.lower() != issue_creator.lower():
-                  print(f"You must be the owner of the repository ({owner}) to add a theme.")
+                  print(f"Error: You must be the owner of the repository ({owner}) to add a theme.")
                   sys.exit(2)
 
           if __name__ == "__main__":
@@ -58,12 +59,14 @@ jobs:
 
       - name: Run ownership check
         id: ownership-check
-        run: python check_ownership.py > ownership_output.txt 2>&1 || echo "OWNERSHIP_FAILED=true" >> $GITHUB_ENV
+        run: python check_ownership.py > ownership_output.txt 2> error.log || echo "OWNERSHIP_FAILED=true" >> $GITHUB_ENV
 
       - name: Capture ownership output
         if: env.OWNERSHIP_FAILED == 'true'
         run: |
           echo "OWNERSHIP_MESSAGE=$(cat ownership_output.txt)" >> $GITHUB_ENV
+          ERROR_LOG=$(cat error.log 2>/dev/null || echo "No error details available")
+          echo "ERROR_OUTPUT=Error in ownership check: $ERROR_LOG" >> $GITHUB_ENV
 
       - name: Close issue for ownership failure
         if: env.OWNERSHIP_FAILED == 'true'
@@ -73,9 +76,11 @@ jobs:
           comment: |
             # Theme submission not authorized
 
-            ${{ env.OWNERSHIP_MESSAGE }}
+            There was an issue processing your theme submission:
 
-            *If you believe you have authorization, please create an issue about it here and the moderators will take care of it soon.*
+            > ${{ env.OWNERSHIP_MESSAGE || env.ERROR_OUTPUT }}
+
+            Please ensure you own the repository specified in the homepage URL. If you believe this is an error, contact the maintainers or review the workflow logs.
 
       - name: Create duplicate check script
         if: env.OWNERSHIP_FAILED != 'true'
@@ -85,12 +90,14 @@ jobs:
           import re
           import urllib.request
           import os
+          import sys
 
           def get_theme_id(homepage):
               print(f"DEBUG: Processing homepage: {homepage}")
               pattern = r'github\.com/([^/]+)/([^/]+)'
               match = re.search(pattern, homepage)
               if not match:
+                  print("Error: Invalid GitHub repository URL", file=sys.stderr)
                   raise ValueError("Invalid GitHub repository URL")
               owner, repo = match.groups()
               
@@ -100,12 +107,18 @@ jobs:
                       theme_data = json.loads(response.read().decode())
                       print(f"DEBUG: theme.json content: {json.dumps(theme_data)}")
               except urllib.error.HTTPError as e:
+                  print(f"Error: Failed to fetch theme.json: HTTP {e.code} {e.reason}", file=sys.stderr)
                   raise ValueError(f"Failed to fetch theme.json: HTTP {e.code} {e.reason}")
-              except Exception as e:
+              except urllib.error.URLError as e:
+                  print(f"Error: Failed to fetch theme.json: {str(e)}", file=sys.stderr)
                   raise ValueError(f"Failed to fetch theme.json: {str(e)}")
+              except json.JSONDecodeError as e:
+                  print(f"Error: Invalid JSON in theme.json: {str(e)}", file=sys.stderr)
+                  raise ValueError(f"Invalid JSON in theme.json: {str(e)}")
               
               theme_id = theme_data.get("id")
               if not theme_id:
+                  print("Error: theme.json must contain 'id' property", file=sys.stderr)
                   raise ValueError("theme.json must contain 'id' property")
               print(f"DEBUG: theme_id: {theme_id}")
               return theme_id
@@ -124,8 +137,10 @@ jobs:
                       prs = json.loads(response.read().decode())
                       print(f"DEBUG: Found {len(prs)} open PRs")
               except urllib.error.HTTPError as e:
+                  print(f"Error: Failed to fetch PRs: HTTP {e.code} {e.reason}", file=sys.stderr)
                   raise ValueError(f"Failed to fetch PRs: HTTP {e.code} {e.reason}")
               except Exception as e:
+                  print(f"Error: Failed to fetch PRs: {str(e)}", file=sys.stderr)
                   raise ValueError(f"Failed to fetch PRs: {str(e)}")
               
               for pr in prs:
@@ -145,7 +160,7 @@ jobs:
                       continue
                   
                   pattern = rf'"\s*{re.escape(theme_id)}\s*"\s*:\s*"[^"]+"'
-                  if "latest.json" in diff and re.search(pattern, diff):
+                  if "+    \"marketplace\":" in diff and re.search(pattern, diff):
                       print(f"DEBUG: Found theme_id {theme_id} in PR #{pr_number}")
                       return pr_number, pr["html_url"]
               return None, None
@@ -159,27 +174,33 @@ jobs:
                   else:
                       print("No duplicates found")
               except ValueError as e:
-                  print(f"Error: {str(e)}")
-                  exit(1)
+                  print(f"Error: {str(e)}", file=sys.stderr)
+                  sys.exit(1)
               except Exception as e:
-                  print(f"Error: Unexpected error: {str(e)}")
-                  exit(1)
+                  print(f"Error: Unexpected error: {str(e)}", file=sys.stderr)
+                  sys.exit(1)
           EOF
 
       - name: Run duplicate check
         if: env.OWNERSHIP_FAILED != 'true'
-        run: python check_duplicate.py > duplicate_output.txt 2> error.log || echo "DUPLICATE_CHECK_FAILED=true" >> $GITHUB_ENV
+        run: |
+          python check_duplicate.py > duplicate_output.txt 2> error.log
+          if [ $? -ne 0 ]; then
+            echo "DUPLICATE_CHECK_FAILED=true" >> $GITHUB_ENV
+          fi
 
       - name: Capture duplicate output
         if: env.OWNERSHIP_FAILED != 'true'
         run: |
-          DUPLICATE_MESSAGE=$(cat duplicate_output.txt)
+          DUPLICATE_OUTPUT=$(cat duplicate_output.txt 2>/dev/null || echo "No output available")
+          ERROR_LOG=$(cat error.log 2>/dev/null || echo "No error details available")
           if grep -q "DUPLICATE_FOUND=" duplicate_output.txt; then
             echo "DUPLICATE_FOUND=true" >> $GITHUB_ENV
-            echo "DUPLICATE_MESSAGE=$DUPLICATE_MESSAGE" >> $GITHUB_ENV
+            echo "DUPLICATE_MESSAGE=$DUPLICATE_OUTPUT" >> $GITHUB_ENV
           elif [ "$DUPLICATE_CHECK_FAILED" = "true" ]; then
-            ERROR_LOG=$(cat error.log 2>/dev/null || echo "No error details available")
             echo "DUPLICATE_MESSAGE=Error processing theme: $ERROR_LOG" >> $GITHUB_ENV
+          else
+            echo "DUPLICATE_MESSAGE=No duplicates found" >> $GITHUB_ENV
           fi
 
       - name: Close issue for duplicate submission
@@ -194,7 +215,7 @@ jobs:
 
             > ${{ env.DUPLICATE_MESSAGE }}
 
-            This may be because a pull request for this theme already exists or due to an error with your submission. Please check existing open pull requests, verify your homepage URL, and ensure your theme.json contains a valid 'id' property. If you believe this is an error, contact the maintainers or review the workflow logs.
+            If this is a duplicate, please check existing open pull requests. Otherwise, verify your homepage URL is in the format 'https://github.com/owner/repo' and your theme.json contains a valid 'id' property. If you believe this is an error, contact the maintainers or review the workflow logs for details.
 
       - name: Create existing theme check script
         if: env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true' && env.DUPLICATE_CHECK_FAILED != 'true'
@@ -203,12 +224,14 @@ jobs:
           import json
           import re
           import urllib.request
+          import sys
 
           def get_theme_id(homepage):
               print(f"DEBUG: Processing homepage: {homepage}")
               pattern = r'github\.com/([^/]+)/([^/]+)'
               match = re.search(pattern, homepage)
               if not match:
+                  print("Error: Invalid GitHub repository URL", file=sys.stderr)
                   raise ValueError("Invalid GitHub repository URL")
               owner, repo = match.groups()
               
@@ -218,12 +241,18 @@ jobs:
                       theme_data = json.loads(response.read().decode())
                       print(f"DEBUG: theme.json content: {json.dumps(theme_data)}")
               except urllib.error.HTTPError as e:
+                  print(f"Error: Failed to fetch theme.json: HTTP {e.code} {e.reason}", file=sys.stderr)
                   raise ValueError(f"Failed to fetch theme.json: HTTP {e.code} {e.reason}")
-              except Exception as e:
+              except urllib.error.URLError as e:
+                  print(f"Error: Failed to fetch theme.json: {str(e)}", file=sys.stderr)
                   raise ValueError(f"Failed to fetch theme.json: {str(e)}")
+              except json.JSONDecodeError as e:
+                  print(f"Error: Invalid JSON in theme.json: {str(e)}", file=sys.stderr)
+                  raise ValueError(f"Invalid JSON in theme.json: {str(e)}")
               
               theme_id = theme_data.get("id")
               if not theme_id:
+                  print("Error: theme.json must contain 'id' property", file=sys.stderr)
                   raise ValueError("theme.json must contain 'id' property")
               print(f"DEBUG: theme_id: {theme_id}")
               return theme_id
@@ -232,7 +261,9 @@ jobs:
               try:
                   with open("latest.json", "r") as f:
                       data = json.load(f)
+                      print(f"DEBUG: latest.json content: {json.dumps(data)}")
               except Exception as e:
+                  print(f"Error: Failed to read latest.json: {str(e)}", file=sys.stderr)
                   raise ValueError(f"Failed to read latest.json: {str(e)}")
               
               if "marketplace" in data and theme_id in data["marketplace"]:
@@ -248,27 +279,33 @@ jobs:
                   else:
                       print("No existing theme found")
               except ValueError as e:
-                  print(f"Error: {str(e)}")
-                  exit(1)
+                  print(f"Error: {str(e)}", file=sys.stderr)
+                  sys.exit(1)
               except Exception as e:
-                  print(f"Error: Unexpected error: {str(e)}")
-                  exit(1)
+                  print(f"Error: Unexpected error: {str(e)}", file=sys.stderr)
+                  sys.exit(1)
           EOF
 
       - name: Run existing theme check
         if: env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true' && env.DUPLICATE_CHECK_FAILED != 'true'
-        run: python check_existing.py > existing_output.txt 2> error.log || echo "EXISTING_CHECK_FAILED=true" >> $GITHUB_ENV
+        run: |
+          python check_existing.py > existing_output.txt 2> error.log
+          if [ $? -ne 0 ]; then
+            echo "EXISTING_CHECK_FAILED=true" >> $GITHUB_ENV
+          fi
 
       - name: Capture existing theme output
         if: env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true' && env.DUPLICATE_CHECK_FAILED != 'true'
         run: |
-          EXISTING_MESSAGE=$(cat existing_output.txt)
+          EXISTING_OUTPUT=$(cat existing_output.txt 2>/dev/null || echo "No output available")
+          ERROR_LOG=$(cat error.log 2>/dev/null || echo "No error details available")
           if grep -q "EXISTING_FOUND=" existing_output.txt; then
             echo "EXISTING_FOUND=true" >> $GITHUB_ENV
-            echo "EXISTING_MESSAGE=$EXISTING_MESSAGE" >> $GITHUB_ENV
+            echo "EXISTING_MESSAGE=$EXISTING_OUTPUT" >> $GITHUB_ENV
           elif [ "$EXISTING_CHECK_FAILED" = "true" ]; then
-            ERROR_LOG=$(cat error.log 2>/dev/null || echo "No error details available")
             echo "EXISTING_MESSAGE=Error processing theme: $ERROR_LOG" >> $GITHUB_ENV
+          else
+            echo "EXISTING_MESSAGE=No existing theme found" >> $GITHUB_ENV
           fi
 
       - name: Close issue for existing theme
@@ -283,7 +320,7 @@ jobs:
 
             > ${{ env.EXISTING_MESSAGE }}
 
-            This may be because the theme is already included in the marketplace or due to an error with your submission. Please check the marketplace in latest.json, verify your homepage URL, and ensure your theme.json contains a valid 'id' property. If you believe this is an error, contact the maintainers or review the workflow logs.
+            This may be because the theme is already included in the marketplace. Please check the marketplace in latest.json, verify your homepage URL is in the format 'https://github.com/owner/repo', and ensure your theme.json contains a valid 'id' property. If you believe this is an error, contact the maintainers or review the workflow logs.
 
       - name: Create update script
         if: env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true' && env.DUPLICATE_CHECK_FAILED != 'true' && env.EXISTING_FOUND != 'true' && env.EXISTING_CHECK_FAILED != 'true'
@@ -292,12 +329,14 @@ jobs:
           import json
           import re
           import urllib.request
+          import sys
 
           def get_repo_info(homepage):
               print(f"DEBUG: Processing homepage: {homepage}")
               pattern = r'github\.com/([^/]+)/([^/]+)'
               match = re.search(pattern, homepage)
               if not match:
+                  print("Error: Invalid GitHub repository URL", file=sys.stderr)
                   raise ValueError("Invalid GitHub repository URL")
               owner, repo = match.groups()
               
@@ -307,12 +346,18 @@ jobs:
                       theme_data = json.loads(response.read().decode())
                       print(f"DEBUG: theme.json content: {json.dumps(theme_data)}")
               except urllib.error.HTTPError as e:
+                  print(f"Error: Failed to fetch theme.json: HTTP {e.code} {e.reason}", file=sys.stderr)
                   raise ValueError(f"Failed to fetch theme.json: HTTP {e.code} {e.reason}")
-              except Exception as e:
+              except urllib.error.URLError as e:
+                  print(f"Error: Failed to fetch theme.json: {str(e)}", file=sys.stderr)
                   raise ValueError(f"Failed to fetch theme.json: {str(e)}")
+              except json.JSONDecodeError as e:
+                  print(f"Error: Invalid JSON in theme.json: {str(e)}", file=sys.stderr)
+                  raise ValueError(f"Invalid JSON in theme.json: {str(e)}")
               
               theme_id = theme_data.get("id")
               if not theme_id:
+                  print("Error: theme.json must contain 'id' property", file=sys.stderr)
                   raise ValueError("theme.json must contain 'id' property")
               print(f"DEBUG: theme_id: {theme_id}")
               return theme_id, f"{owner}/{repo}"
@@ -321,7 +366,9 @@ jobs:
               try:
                   with open("latest.json", "r") as f:
                       data = json.load(f)
+                      print(f"DEBUG: latest.json content: {json.dumps(data)}")
               except Exception as e:
+                  print(f"Error: Failed to read latest.json: {str(e)}", file=sys.stderr)
                   raise ValueError(f"Failed to read latest.json: {str(e)}")
               
               homepage = "${{ env.THEME_HOMEPAGE }}"
@@ -338,23 +385,27 @@ jobs:
               try:
                   update_marketplace()
               except ValueError as e:
-                  print(f"Error: {str(e)}")
-                  exit(1)
+                  print(f"Error: {str(e)}", file=sys.stderr)
+                  sys.exit(1)
               except Exception as e:
-                  print(f"Error: Unexpected error: {str(e)}")
-                  exit(1)
+                  print(f"Error: Unexpected error: {str(e)}", file=sys.stderr)
+                  sys.exit(1)
           EOF
 
       - name: Run update script
         if: env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true' && env.DUPLICATE_CHECK_FAILED != 'true' && env.EXISTING_FOUND != 'true' && env.EXISTING_CHECK_FAILED != 'true'
-        run: python update_marketplace.py > update_output.txt 2> error.log || echo "UPDATE_FAILED=true" >> $GITHUB_ENV
+        run: |
+          python update_marketplace.py > update_output.txt 2> error.log
+          if [ $? -ne 0 ]; then
+            echo "UPDATE_FAILED=true" >> $GITHUB_ENV
+          fi
 
       - name: Export error output
         if: failure() && env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true' && env.DUPLICATE_CHECK_FAILED != 'true' && env.EXISTING_FOUND != 'true' && env.EXISTING_CHECK_FAILED != 'true'
         run: |
           if [ -f error.log ]; then
             cat error.log
-            echo "ERROR_OUTPUT=$(cat error.log)" >> $GITHUB_ENV
+            echo "ERROR_OUTPUT=$(cat error.log 2>/dev/null || echo 'No error details available')" >> $GITHUB_ENV
           else
             echo "DEBUG: error.log not found"
             echo "ERROR_OUTPUT=Unknown error occurred, please check workflow logs" >> $GITHUB_ENV
@@ -372,7 +423,7 @@ jobs:
 
             > ${{ env.ERROR_OUTPUT || 'Unknown error occurred, please check workflow logs' }}
 
-            Please check your homepage URL and ensure the repository contains a valid theme.json file with an 'id' property. If you believe this is an error, contact the maintainers or review the workflow logs for details.
+            Please verify your homepage URL is in the format 'https://github.com/owner/repo' and your theme.json contains a valid 'id' property. If you believe this is an error, contact the maintainers or review the workflow logs for details.
 
       - name: Setup Git
         if: success() && env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true' && env.DUPLICATE_CHECK_FAILED != 'true' && env.EXISTING_FOUND != 'true' && env.EXISTING_CHECK_FAILED != 'true'
