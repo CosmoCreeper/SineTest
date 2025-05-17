@@ -123,7 +123,6 @@ jobs:
               try:
                   with urllib.request.urlopen(theme_json_url) as response:
                       theme_data = json.loads(response.read().decode())
-                      print(f"DEBUG: theme.json content: {json.dumps(theme_data)}")
               except urllib.error.HTTPError as e:
                   print(f"Error: Failed to fetch theme.json: HTTP {e.code} {e.reason}", file=sys.stderr)
                   raise ValueError(f"Failed to fetch theme.json: HTTP {e.code} {e.reason}")
@@ -176,19 +175,23 @@ jobs:
                   if pr_state != "open":
                       print(f"DEBUG: Skipping PR #{pr_number} as it is not open")
                       continue
-                  diff_url = pr["diff_url"]
+                  files_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/files"
                   try:
-                      with urllib.request.urlopen(diff_url) as response:
-                          diff = response.read().decode()
-                          print(f"DEBUG: Diff for PR #{pr_number} fetched, length: {len(diff)}")
+                      req = urllib.request.Request(files_url, headers=headers)
+                      with urllib.request.urlopen(req) as response:
+                          files = json.loads(response.read().decode())
+                          print(f"DEBUG: Fetched {len(files)} files for PR #{pr_number}")
                   except Exception as e:
-                      print(f"DEBUG: Failed to fetch diff for PR #{pr_number}: {str(e)}")
+                      print(f"DEBUG: Failed to fetch files for PR #{pr_number}: {str(e)}")
                       continue
                   
-                  pattern = rf'"\s*{re.escape(theme_id)}\s*"\s*:\s*"[^"]+"'
-                  if "+    \"marketplace\":" in diff and re.search(pattern, diff):
-                      print(f"DEBUG: Found theme_id {theme_id} in PR #{pr_number}")
-                      return pr_number, pr["html_url"]
+                  for file in files:
+                      if file["filename"] == "latest.json":
+                          patch = file.get("patch", "")
+                          pattern = rf'"\s*{re.escape(theme_id)}\s*"\s*:\s*"[^"]+"'
+                          if '"marketplace":' in patch and re.search(pattern, patch):
+                              print(f"DEBUG: Found theme_id {theme_id} in PR #{pr_number}")
+                              return pr_number, pr["html_url"]
               return None, None
 
           if __name__ == "__main__":
@@ -221,7 +224,7 @@ jobs:
         if: env.OWNERSHIP_FAILED != 'true'
         run: |
           DUPLICATE_OUTPUT=$(cat duplicate_output.txt 2>/dev/null || echo "No output available")
-          ERROR_LOG=$(cat error.log 2>/dev/null || echo "No error details available")
+          ERROR_LOG=$(cat error.log 2>/dev/null || echo "No error details available" | grep -v "DEBUG: theme.json content")
           if grep -q "DUPLICATE_FOUND=" duplicate_output.txt; then
             echo "DUPLICATE_FOUND=true" >> $GITHUB_ENV
             echo "DUPLICATE_MESSAGE=$DUPLICATE_OUTPUT" >> $GITHUB_ENV
@@ -244,7 +247,7 @@ jobs:
 
             > ${{ env.DUPLICATE_MESSAGE }}
 
-            If this is a duplicate, please check existing open pull requests. Otherwise, verify your homepage URL is in the format 'https://github.com/owner/repo' and your theme.json contains a valid 'id' property. If the error mentions 'GITHUB_TOKEN is not set' or '401 Unauthorized', ensure the repository's Actions settings allow GitHub Actions to read pull requests (Settings > Actions > General > Workflow permissions). For organization repositories, check Organization Settings > Actions > General. Alternatively, contact the maintainers or review the workflow logs.
+            If this is a duplicate, please check existing open pull requests. Otherwise, verify your homepage URL is in the format 'https://github.com/owner/repo' and your theme.json contains a valid 'id' property. If you believe this is an error, contact the maintainers or review the workflow logs.
 
       - name: Create existing theme check script
         if: env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true' && env.DUPLICATE_CHECK_FAILED != 'true'
@@ -268,7 +271,6 @@ jobs:
               try:
                   with urllib.request.urlopen(theme_json_url) as response:
                       theme_data = json.loads(response.read().decode())
-                      print(f"DEBUG: theme.json content: {json.dumps(theme_data)}")
               except urllib.error.HTTPError as e:
                   print(f"Error: Failed to fetch theme.json: HTTP {e.code} {e.reason}", file=sys.stderr)
                   raise ValueError(f"Failed to fetch theme.json: HTTP {e.code} {e.reason}")
@@ -290,7 +292,7 @@ jobs:
               try:
                   with open("latest.json", "r") as f:
                       data = json.load(f)
-                      print(f"DEBUG: latest.json content: {json.dumps(data)}")
+                      print(f"DEBUG: Checking latest.json for theme_id: {theme_id}")
               except Exception as e:
                   print(f"Error: Failed to read latest.json: {str(e)}", file=sys.stderr)
                   raise ValueError(f"Failed to read latest.json: {str(e)}")
@@ -327,7 +329,7 @@ jobs:
         if: env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true' && env.DUPLICATE_CHECK_FAILED != 'true'
         run: |
           EXISTING_OUTPUT=$(cat existing_output.txt 2>/dev/null || echo "No output available")
-          ERROR_LOG=$(cat error.log 2>/dev/null || echo "No error details available")
+          ERROR_LOG=$(cat error.log 2>/dev/null || echo "No error details available" | grep -v "DEBUG: theme.json content")
           if grep -q "EXISTING_FOUND=" existing_output.txt; then
             echo "EXISTING_FOUND=true" >> $GITHUB_ENV
             echo "EXISTING_MESSAGE=$EXISTING_OUTPUT" >> $GITHUB_ENV
@@ -374,7 +376,6 @@ jobs:
               try:
                   with urllib.request.urlopen(theme_json_url) as response:
                       theme_data = json.loads(response.read().decode())
-                      print(f"DEBUG: theme.json content: {json.dumps(theme_data)}")
               except urllib.error.HTTPError as e:
                   print(f"Error: Failed to fetch theme.json: HTTP {e.code} {e.reason}", file=sys.stderr)
                   raise ValueError(f"Failed to fetch theme.json: HTTP {e.code} {e.reason}")
@@ -396,7 +397,7 @@ jobs:
               try:
                   with open("latest.json", "r") as f:
                       data = json.load(f)
-                      print(f"DEBUG: latest.json content: {json.dumps(data)}")
+                      print(f"DEBUG: Updating latest.json")
               except Exception as e:
                   print(f"Error: Failed to read latest.json: {str(e)}", file=sys.stderr)
                   raise ValueError(f"Failed to read latest.json: {str(e)}")
@@ -435,7 +436,8 @@ jobs:
         run: |
           if [ -f error.log ]; then
             cat error.log
-            echo "ERROR_OUTPUT=$(cat error.log 2>/dev/null || echo 'No error details available')" >> $GITHUB_ENV
+            ERROR_LOG=$(cat error.log 2>/dev/null || echo "No error details available" | grep -v "DEBUG: theme.json content")
+            echo "ERROR_OUTPUT=$ERROR_LOG" >> $GITHUB_ENV
           else
             echo "DEBUG: error.log not found"
             echo "ERROR_OUTPUT=Unknown error occurred, please check workflow logs" >> $GITHUB_ENV
@@ -453,7 +455,7 @@ jobs:
 
             > ${{ env.ERROR_OUTPUT || 'Unknown error occurred, please check workflow logs' }}
 
-            Please verify your homepage URL is in the format 'https://github.com/owner/repo' and your theme.json contains a valid 'id' property. If the error mentions 'GITHUB_TOKEN is not set' or '401 Unauthorized', ensure the repository's Actions settings allow GitHub Actions to read pull requests (Settings > Actions > General > Workflow permissions). For organization repositories, check Organization Settings > Actions > General. Contact the maintainers or review the workflow logs.
+            Please verify your homepage URL is in the format 'https://github.com/owner/repo' and your theme.json contains a valid 'id' property. If you believe this is an error, contact the maintainers or review the workflow logs.
 
       - name: Setup Git
         if: success() && env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true' && env.DUPLICATE_CHECK_FAILED != 'true' && env.EXISTING_FOUND != 'true' && env.EXISTING_CHECK_FAILED != 'true'
@@ -482,6 +484,13 @@ jobs:
             * **Author**: @${{ env.THEME_AUTHOR }}
           branch: add-theme-${{ github.event.issue.number }}
           base: main
+
+      - name: Debug Close Issue
+        if: success() && env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true' && env.DUPLICATE_CHECK_FAILED != 'true' && env.EXISTING_FOUND != 'true' && env.EXISTING_CHECK_FAILED != 'true'
+        run: |
+          echo "DEBUG: Preparing to close issue with success message"
+          echo "DEBUG: THEME_NAME=${{ env.THEME_NAME }}"
+          echo "DEBUG: GITHUB_TOKEN length=${#GITHUB_TOKEN}"
 
       - name: Close Issue
         if: success() && env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true' && env.DUPLICATE_CHECK_FAILED != 'true' && env.EXISTING_FOUND != 'true' && env.EXISTING_CHECK_FAILED != 'true'
