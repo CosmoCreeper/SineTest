@@ -5,11 +5,10 @@ on:
 
 jobs:
   addThemePR:
-    # Permissions for reading/writing issues, PRs, and contents
     permissions:
-      contents: write      # To update latest.json
-      issues: write        # To close issues
-      pull-requests: write # To create PRs
+      contents: write
+      issues: write
+      pull-requests: write
     name: Add a theme
     runs-on: ubuntu-latest
     if: startsWith(github.event.issue.title, '[add-theme]:')
@@ -46,12 +45,12 @@ jobs:
               pattern = r'github\.com/([^/]+)/([^/]+)'
               match = re.search(pattern, homepage)
               if not match:
-                  print("Error: Invalid GitHub repository URL", file=sys.stderr)
+                  print("Error: Invalid GitHub repository URL")
                   sys.exit(1)
               owner, _ = match.groups()
               
               if owner.lower() != issue_creator.lower():
-                  print(f"Error: You must be the owner of the repository ({owner}) to add a theme.", file=sys.stderr)
+                  print(f"Error: You must be the owner of the repository ({owner}) to add a theme.")
                   sys.exit(2)
 
           if __name__ == "__main__":
@@ -60,16 +59,12 @@ jobs:
 
       - name: Run ownership check
         id: ownership-check
-        run: |
-          python check_ownership.py > ownership_output.txt 2> error.log
-          if [ $? -ne 0 ]; then
-            echo "OWNERSHIP_FAILED=true" >> $GITHUB_ENV
-          fi
+        run: python check_ownership.py > ownership_output.txt 2> error.log || echo "OWNERSHIP_FAILED=true" >> $GITHUB_ENV
 
       - name: Capture ownership output
         if: env.OWNERSHIP_FAILED == 'true'
         run: |
-          echo "OWNERSHIP_MESSAGE=$(cat ownership_output.txt 2>/dev/null || echo 'No output available')" >> $GITHUB_ENV
+          echo "OWNERSHIP_MESSAGE=$(cat ownership_output.txt)" >> $GITHUB_ENV
           ERROR_LOG=$(cat error.log 2>/dev/null || echo "No error details available")
           echo "ERROR_OUTPUT=Error in ownership check: $ERROR_LOG" >> $GITHUB_ENV
 
@@ -131,13 +126,8 @@ jobs:
           def check_duplicate_prs(theme_id):
               repo = "${{ github.repository }}"
               api_url = f"https://api.github.com/repos/{repo}/pulls?state=open"
-              token = os.getenv('GITHUB_TOKEN')
-              if not token:
-                  print("Error: GITHUB_TOKEN is not set", file=sys.stderr)
-                  raise ValueError("GITHUB_TOKEN is not set")
-              print(f"DEBUG: GITHUB_TOKEN is set (length: {len(token)})")
               headers = {
-                  "Authorization": f"Bearer {token}",
+                  "Authorization": f"Bearer {os.getenv('GITHUB_TOKEN')}",
                   "Accept": "application/vnd.github.v3+json"
               }
               
@@ -149,12 +139,9 @@ jobs:
               except urllib.error.HTTPError as e:
                   print(f"Error: Failed to fetch PRs: HTTP {e.code} {e.reason}", file=sys.stderr)
                   raise ValueError(f"Failed to fetch PRs: HTTP {e.code} {e.reason}")
-              except urllib.error.URLError as e:
+              except Exception as e:
                   print(f"Error: Failed to fetch PRs: {str(e)}", file=sys.stderr)
                   raise ValueError(f"Failed to fetch PRs: {str(e)}")
-              except json.JSONDecodeError as e:
-                  print(f"Error: Invalid JSON in API response: {str(e)}", file=sys.stderr)
-                  raise ValueError(f"Invalid JSON in API response: {str(e)}")
               
               for pr in prs:
                   pr_number = pr["number"]
@@ -217,7 +204,7 @@ jobs:
           fi
 
       - name: Close issue for duplicate submission
-        if: env.OWNERSHIP_FAILED != 'true' && (env.DUPLICATE_FOUND == 'true' || env.DUPLICATE_CHECK_FAILED == 'true')
+        if: env.DUPLICATE_FOUND == 'true' || env.DUPLICATE_CHECK_FAILED == 'true'
         uses: peter-evans/close-issue@v3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -228,7 +215,7 @@ jobs:
 
             > ${{ env.DUPLICATE_MESSAGE }}
 
-            If this is a duplicate, please check existing open pull requests. Otherwise, verify your homepage URL is in the format 'https://github.com/owner/repo' and your theme.json contains a valid 'id' property. If the error mentions '401 Unauthorized', ensure the repository's Actions settings allow GitHub Actions to read pull requests. Contact the maintainers or review the workflow logs for details.
+            If this is a duplicate, please check existing open pull requests. Otherwise, verify your homepage URL is in the format 'https://github.com/owner/repo' and your theme.json contains a valid 'id' property. If you believe this is an error, contact the maintainers or review the workflow logs for details.
 
       - name: Create existing theme check script
         if: env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true' && env.DUPLICATE_CHECK_FAILED != 'true'
@@ -322,7 +309,7 @@ jobs:
           fi
 
       - name: Close issue for existing theme
-        if: env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true' && env.DUPLICATE_CHECK_FAILED != 'true' && (env.EXISTING_FOUND == 'true' || env.EXISTING_CHECK_FAILED == 'true')
+        if: env.EXISTING_FOUND == 'true' || env.EXISTING_CHECK_FAILED == 'true'
         uses: peter-evans/close-issue@v3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -436,7 +423,7 @@ jobs:
 
             > ${{ env.ERROR_OUTPUT || 'Unknown error occurred, please check workflow logs' }}
 
-            Please verify your homepage URL is in the format 'https://github.com/owner/repo' and your theme.json contains a valid 'id' property. If the error mentions '401 Unauthorized', ensure the repository's Actions settings allow GitHub Actions to read pull requests. Contact the maintainers or review the workflow logs for details.
+            Please verify your homepage URL is in the format 'https://github.com/owner/repo' and your theme.json contains a valid 'id' property. If you believe this is an error, contact the maintainers or review the workflow logs for details.
 
       - name: Setup Git
         if: success() && env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true' && env.DUPLICATE_CHECK_FAILED != 'true' && env.EXISTING_FOUND != 'true' && env.EXISTING_CHECK_FAILED != 'true'
@@ -477,5 +464,5 @@ jobs:
             Your theme "${{ env.THEME_NAME }}" has been successfully submitted. The maintainers will review it and get back to you soon.
 
             Here are some details about your submission:
-            * Your theme has been requested into a new pull request.
-            * It has been created in the branch [add-theme-${{ github.event.issue.number }}](https://github.com/${{ github.repository }}/tree/add-theme-${{ github.event.issue.number }}).
+            * Your theme has been requested into [this PR](https://github.com/${{ github.repository }}/pull/${{ env.PULL_REQUEST_NUMBER }}).
+            * It has been created into the [add-theme-${{ github.event.issue.number }} branch](https://github.com/${{ github.repository }}/tree/add-theme-${{ github.event.issue.number }}).
