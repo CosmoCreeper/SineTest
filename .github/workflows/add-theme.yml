@@ -9,7 +9,6 @@ jobs:
     permissions:
       contents: write      # To update latest.json
       issues: write        # To close issues
-      pull-requests: read  # To read PRs for duplicate check
       pull-requests: write # To create PRs
     name: Add a theme
     runs-on: ubuntu-latest
