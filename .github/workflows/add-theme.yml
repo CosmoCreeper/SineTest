@@ -130,6 +130,11 @@ jobs:
               
               for pr in prs:
                   pr_number = pr["number"]
+                  pr_state = pr["state"]
+                  print(f"DEBUG: Checking PR #{pr_number} (state: {pr_state})")
+                  if pr_state != "open":
+                      print(f"DEBUG: Skipping PR #{pr_number} as it is not open")
+                      continue
                   diff_url = pr["diff_url"]
                   try:
                       with urllib.request.urlopen(diff_url) as response:
@@ -173,7 +178,8 @@ jobs:
             echo "DUPLICATE_FOUND=true" >> $GITHUB_ENV
             echo "DUPLICATE_MESSAGE=$DUPLICATE_MESSAGE" >> $GITHUB_ENV
           elif [ "$DUPLICATE_CHECK_FAILED" = "true" ]; then
-            echo "DUPLICATE_MESSAGE=$(cat error.log)" >> $GITHUB_ENV
+            ERROR_LOG=$(cat error.log 2>/dev/null || echo "No error details available")
+            echo "DUPLICATE_MESSAGE=Error processing theme: $ERROR_LOG" >> $GITHUB_ENV
           fi
 
       - name: Close issue for duplicate submission
@@ -182,13 +188,13 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           comment: |
-            # Duplicate theme submission
+            # Theme submission issue
 
             Sorry, there was an issue processing your theme submission:
 
             > ${{ env.DUPLICATE_MESSAGE }}
 
-            This may be because a pull request for this theme already exists or due to an error with your submission. Please check existing pull requests or contact the maintainers if you believe this is an error.
+            This may be because a pull request for this theme already exists or due to an error with your submission. Please check existing open pull requests, verify your homepage URL, and ensure your theme.json contains a valid 'id' property. If you believe this is an error, contact the maintainers or review the workflow logs.
 
       - name: Create existing theme check script
         if: env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true' && env.DUPLICATE_CHECK_FAILED != 'true'
@@ -261,7 +267,8 @@ jobs:
             echo "EXISTING_FOUND=true" >> $GITHUB_ENV
             echo "EXISTING_MESSAGE=$EXISTING_MESSAGE" >> $GITHUB_ENV
           elif [ "$EXISTING_CHECK_FAILED" = "true" ]; then
-            echo "EXISTING_MESSAGE=$(cat error.log)" >> $GITHUB_ENV
+            ERROR_LOG=$(cat error.log 2>/dev/null || echo "No error details available")
+            echo "EXISTING_MESSAGE=Error processing theme: $ERROR_LOG" >> $GITHUB_ENV
           fi
 
       - name: Close issue for existing theme
@@ -276,7 +283,7 @@ jobs:
 
             > ${{ env.EXISTING_MESSAGE }}
 
-            This may be because the theme is already included in the marketplace or due to an error with your submission. Please check the marketplace or contact the maintainers if you believe this is an error.
+            This may be because the theme is already included in the marketplace or due to an error with your submission. Please check the marketplace in latest.json, verify your homepage URL, and ensure your theme.json contains a valid 'id' property. If you believe this is an error, contact the maintainers or review the workflow logs.
 
       - name: Create update script
         if: env.OWNERSHIP_FAILED != 'true' && env.DUPLICATE_FOUND != 'true' && env.DUPLICATE_CHECK_FAILED != 'true' && env.EXISTING_FOUND != 'true' && env.EXISTING_CHECK_FAILED != 'true'
