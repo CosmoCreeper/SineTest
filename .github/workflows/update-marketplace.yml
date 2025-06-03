@@ -1,0 +1,206 @@
+name: Update latest.json to contain latest data
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/5 * * * *" # every 5 minutes
+  push:
+    branches:
+      - 'main'
+      - 'cosine'
+
+jobs:
+  update-latest-json:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Read and update latest.json
+      run: |
+        # Install jq for JSON processing
+        sudo apt-get update && sudo apt-get install -y jq curl
+        
+        # Function to normalize GitHub URLs
+        normalize_github_url() {
+          local url="$1"
+          local branch=""
+          
+          # Remove trailing slash
+          url="${url%/}"
+          
+          # Handle different URL formats
+          if [[ "$url" =~ ^https://github\.com/([^/]+/[^/]+)(/tree/([^/]+))?$ ]]; then
+            # Full GitHub URL with optional branch
+            repo="${BASH_REMATCH[1]}"
+            branch="${BASH_REMATCH[3]}"
+          elif [[ "$url" =~ ^([^/]+/[^/]+)(/tree/([^/]+))?$ ]]; then
+            # Abbreviated format (user/repo) with optional branch
+            repo="${BASH_REMATCH[1]}"
+            branch="${BASH_REMATCH[3]}"
+          else
+            echo "Invalid GitHub URL format: $url" >&2
+            return 1
+          fi
+          
+          # Default to main branch if no branch specified
+          if [[ -z "$branch" ]]; then
+            branch="main"
+          fi
+          
+          echo "$repo|$branch"
+        }
+        
+        # Function to fetch theme.json from GitHub repository
+        fetch_theme_data() {
+          local repo="$1"
+          local branch="$2"
+          local homepage="$3"
+          
+          # Try to fetch theme.json from the repository
+          local api_url="https://api.github.com/repos/$repo/contents/theme.json?ref=$branch"
+          
+          echo "Fetching theme data from: $api_url" >&2
+          
+          local response=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                               -H "Accept: application/vnd.github.v3+json" \
+                               "$api_url")
+          
+          # Check if the request was successful
+          if echo "$response" | jq -e '.message' > /dev/null 2>&1; then
+            echo "Error fetching theme.json: $(echo "$response" | jq -r '.message')" >&2
+            # Return a default object with just the homepage
+            jq -n --arg homepage "$homepage" '{
+              homepage: $homepage,
+              image: "",
+              name: "",
+              version: "",
+              description: "",
+              readme: ""
+            }'
+            return
+          fi
+          
+          # Decode base64 content and parse JSON
+          local theme_content=$(echo "$response" | jq -r '.content' | base64 -d)
+          
+          # Validate JSON
+          if ! echo "$theme_content" | jq empty 2>/dev/null; then
+            echo "Invalid JSON in theme.json" >&2
+            # Return a default object with just the homepage
+            jq -n --arg homepage "$homepage" '{
+              homepage: $homepage,
+              image: "",
+              name: "",
+              version: "",
+              description: "",
+              readme: ""
+            }'
+            return
+          fi
+          
+          # Extract required fields and add homepage
+          echo "$theme_content" | jq --arg homepage "$homepage" '{
+            homepage: $homepage,
+            image: (.image // ""),
+            name: (.name // ""),
+            version: (.version // ""),
+            description: (.description // ""),
+            readme: (.readme // "")
+          }'
+        }
+        
+        # Check if latest.json exists
+        if [[ ! -f "latest.json" ]]; then
+          echo "latest.json not found, creating default structure"
+          echo '{"marketplace": {}}' > latest.json
+        fi
+        
+        # Read current latest.json
+        latest_content=$(cat latest.json)
+        
+        # Check if marketplace property exists
+        if ! echo "$latest_content" | jq -e '.marketplace' > /dev/null 2>&1; then
+          echo "marketplace property not found, creating empty object"
+          latest_content=$(echo "$latest_content" | jq '.marketplace = {}')
+        fi
+        
+        # Get all keys in the marketplace object
+        marketplace_keys=$(echo "$latest_content" | jq -r '.marketplace | keys[]')
+        
+        # Create a temporary file for the updated JSON
+        temp_file=$(mktemp)
+        echo "$latest_content" > "$temp_file"
+        
+        # Process each marketplace entry
+        while IFS= read -r key; do
+          if [[ -n "$key" ]]; then
+            echo "Processing marketplace entry: $key"
+            
+            # Get the homepage URL for this entry
+            homepage=$(echo "$latest_content" | jq -r ".marketplace[\"$key\"].homepage // empty")
+            
+            if [[ -z "$homepage" ]]; then
+              echo "No homepage found for $key, skipping"
+              continue
+            fi
+            
+            echo "Homepage for $key: $homepage"
+            
+            # Normalize the GitHub URL
+            if normalized=$(normalize_github_url "$homepage"); then
+              repo=$(echo "$normalized" | cut -d'|' -f1)
+              branch=$(echo "$normalized" | cut -d'|' -f2)
+              
+              echo "Normalized - Repo: $repo, Branch: $branch"
+              
+              # Fetch theme data
+              theme_data=$(fetch_theme_data "$repo" "$branch" "$homepage")
+              
+              # Update the marketplace entry
+              temp_content=$(cat "$temp_file")
+              echo "$temp_content" | jq --arg key "$key" --argjson data "$theme_data" \
+                '.marketplace[$key] = $data' > "$temp_file"
+              
+              echo "Updated $key with fetched data"
+            else
+              echo "Failed to normalize URL for $key: $homepage"
+            fi
+          fi
+        done <<< "$marketplace_keys"
+        
+        # Write the updated content back to latest.json
+        cat "$temp_file" > latest.json
+        rm "$temp_file"
+        
+        echo "Updated latest.json successfully"
+
+    - name: Commit and push changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        
+        # Check if there are any changes
+        if git diff --quiet latest.json; then
+          echo "No changes to latest.json"
+          exit 0
+        fi
+        
+        git add latest.json
+        git commit -m "Update latest.json with latest marketplace data [skip ci]"
+        git push
+
+    - name: Handle errors
+      if: failure()
+      run: |
+        echo "Workflow failed. Check the logs above for details."
+        exit 1
