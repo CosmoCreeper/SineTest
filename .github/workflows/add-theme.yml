@@ -657,8 +657,12 @@ jobs:
               
               for url in js_urls:
                   if not validate_github_raw_url(url):
-                      print(f"Warning: Invalid GitHub raw URL format: {url}", file=sys.stderr)
-                      continue
+                      print(f"Warning: Skipping invalid GitHub raw URL: {url}", file=sys.stderr)
+                      continue  # Skip this URL and move to the next one
+                  filename = get_filename_from_url(url)
+                  if not filename.endswith('.js'):
+                      print(f"Warning: Skipping non-JS file: {filename}", file=sys.stderr)
+                      continue  # Skip non-JS files
                   
                   filename = extract_filename(url)
                   file_path = os.path.join(mods_dir, filename)
