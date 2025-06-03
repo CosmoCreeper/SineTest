@@ -535,10 +535,15 @@ jobs:
                   raise ValueError(f"Invalid JSON in theme.json: {str(e)}")
               
               theme_id = theme_data.get("id")
+              theme_img = theme_data.get("image")
+              theme_readme = theme_data.get("readme")
+              theme_name = theme_data.get("name")
+              theme_desc = theme_data.get("description")
+              theme_vers = theme_data.get("version")
               if not theme_id:
                   print("Error: theme.json must contain 'id' property", file=sys.stderr)
                   raise ValueError("theme.json must contain 'id' property")
-              return theme_id, f"{owner}/{repo}"
+              return theme_id, f"{owner}/{repo}", theme_img, theme_readme, theme_name, theme_desc, theme_vers
 
           def update_marketplace():
               try:
@@ -549,11 +554,11 @@ jobs:
                   raise ValueError(f"Failed to read latest.json: {str(e)}")
               
               homepage = "${{ env.THEME_HOMEPAGE }}"
-              theme_id, user_repo = get_repo_info(homepage)
+              theme_id, user_repo, theme_img, theme_readme, theme_name, theme_desc, theme_vers = get_repo_info(homepage)
               
               if "marketplace" not in data:
                   data["marketplace"] = {}
-              data["marketplace"][theme_id] = user_repo
+              data["marketplace"][theme_id] = {"homepage":user_repo,"image":theme_img,"readme":theme_readme,"name":theme_name,"description":theme_desc,"version":theme_vers}
               
               with open("latest.json", "w") as f:
                   json.dump(data, f, indent=2)
