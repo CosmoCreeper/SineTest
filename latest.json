@@ -1,7 +1,21 @@
 {
   "version": "Test",
   "marketplace": {
-    "advanced-tab-groups": {"homepage":"Anoms12/Advanced-Tab-Groups"},
-    "testmod": {"homepage":"CosmoCreeper/TestMod"}
+    "advanced-tab-groups": {
+      "homepage": "Anoms12/Advanced-Tab-Groups",
+      "image": "https://raw.githubusercontent.com/Anoms12/Advanced-Tab-Groups/main/image.jpg",
+      "name": "Advanced Tab Groups",
+      "version": "9",
+      "description": "Advanced Tab Group CSS for Zen Browser ",
+      "readme": "https://raw.githubusercontent.com/Anoms12/Advanced-Tab-Groups/main/README.md"
+    },
+    "testmod": {
+      "homepage": "CosmoCreeper/TestMod",
+      "image": "",
+      "name": "Test Mod",
+      "version": "",
+      "description": "Real Description",
+      "readme": ""
+    }
   }
 }
