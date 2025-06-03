@@ -9,6 +9,10 @@ on:
       - 'main'
       - 'cosine'
 
+permissions:
+  contents: write
+  actions: read
+
 jobs:
   update-latest-json:
     runs-on: ubuntu-latest
@@ -66,32 +70,94 @@ jobs:
           local branch="$2"
           local homepage="$3"
           
-          # Try to fetch theme.json from the repository
-          local api_url="https://api.github.com/repos/$repo/contents/theme.json?ref=$branch"
+          echo "Processing repo: $repo, branch: $branch" >&2
           
-          echo "Fetching theme data from: $api_url" >&2
-          
-          local response=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                               -H "Accept: application/vnd.github.v3+json" \
-                               "$api_url")
-          
-          # Check if the request was successful
-          if echo "$response" | jq -e '.message' > /dev/null 2>&1; then
-            echo "Error fetching theme.json: $(echo "$response" | jq -r '.message')" >&2
-            # Return a default object with just the homepage
-            jq -n --arg homepage "$homepage" '{
-              homepage: $homepage,
-              image: "",
-              name: "",
-              version: "",
-              description: "",
-              readme: ""
-            }'
-            return
+          # Check if this is the current repository
+          current_repo="${{ github.repository }}"
+          if [[ "$repo" == "$current_repo" ]]; then
+            echo "Fetching from current repository using local file system" >&2
+            
+            # For current repo, try to read theme.json directly from filesystem first
+            if [[ -f "theme.json" ]]; then
+              echo "Found theme.json in current directory" >&2
+              theme_content=$(cat theme.json)
+            else
+              echo "theme.json not found in current directory, trying API" >&2
+              # Fall back to API for current repo
+              local api_url="https://api.github.com/repos/$repo/contents/theme.json?ref=$branch"
+              local response=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                                   -H "Accept: application/vnd.github.v3+json" \
+                                   "$api_url")
+              
+              if echo "$response" | jq -e '.message' > /dev/null 2>&1; then
+                echo "API request failed: $(echo "$response" | jq -r '.message')" >&2
+                # Return a default object with just the homepage
+                jq -n --arg homepage "$homepage" '{
+                  homepage: $homepage,
+                  image: "",
+                  name: "",
+                  version: "",
+                  description: "",
+                  readme: ""
+                }'
+                return
+              fi
+              
+              theme_content=$(echo "$response" | jq -r '.content' | base64 -d)
+            fi
+          else
+            echo "Fetching from external repository via API" >&2
+            # Try to fetch theme.json from external repository
+            local api_url="https://api.github.com/repos/$repo/contents/theme.json?ref=$branch"
+            
+            echo "Fetching theme data from: $api_url" >&2
+            
+            # Try with authentication first
+            local response=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                                 -H "Accept: application/vnd.github.v3+json" \
+                                 "$api_url")
+            
+            # Check if the request failed due to permissions
+            if echo "$response" | jq -e '.message' > /dev/null 2>&1; then
+              local error_message=$(echo "$response" | jq -r '.message')
+              echo "Error with authenticated request: $error_message" >&2
+              
+              # If it's a permission error, try without authentication for public repos
+              if [[ "$error_message" == *"403"* ]] || [[ "$error_message" == *"denied"* ]] || [[ "$error_message" == *"permission"* ]]; then
+                echo "Trying unauthenticated request for public repository..." >&2
+                response=$(curl -s -H "Accept: application/vnd.github.v3+json" "$api_url")
+                
+                # Check if unauthenticated request also failed
+                if echo "$response" | jq -e '.message' > /dev/null 2>&1; then
+                  echo "Unauthenticated request also failed: $(echo "$response" | jq -r '.message')" >&2
+                  # Return a default object with just the homepage
+                  jq -n --arg homepage "$homepage" '{
+                    homepage: $homepage,
+                    image: "",
+                    name: "",
+                    version: "",
+                    description: "",
+                    readme: ""
+                  }'
+                  return
+                fi
+              else
+                # Return a default object with just the homepage
+                jq -n --arg homepage "$homepage" '{
+                  homepage: $homepage,
+                  image: "",
+                  name: "",
+                  version: "",
+                  description: "",
+                  readme: ""
+                }'
+                return
+              fi
+            fi
+            
+            # Decode base64 content
+            theme_content=$(echo "$response" | jq -r '.content' | base64 -d)
           fi
-          
-          # Decode base64 content and parse JSON
-          local theme_content=$(echo "$response" | jq -r '.content' | base64 -d)
           
           # Validate JSON
           if ! echo "$theme_content" | jq empty 2>/dev/null; then
