@@ -1,4 +1,5 @@
 {
+  "version": "Test",
   "marketplace": {
     "advanced-tab-groups": {"homepage":"Anoms12/Advanced-Tab-Groups"},
     "testmod": {"homepage":"CosmoCreeper/TestMod"}
