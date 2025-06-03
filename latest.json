@@ -17,6 +17,13 @@
       "description": "Real Description",
       "readme": ""
     },
-    "zenwallpapers": "CosmoCreeper/ZenWallpapers"
+    "zenwallpapers": {
+      "homepage": "CosmoCreeper/ZenWallpapers",
+      "image": "",
+      "name": "Zen Wallpapers",
+      "version": "1.0.0",
+      "description": "Add wallpapers to Zen",
+      "readme": "https://raw.githubusercontent.com/CosmoCreeper/ZenWallpapers/main/README.md"
+    }
   }
 }
