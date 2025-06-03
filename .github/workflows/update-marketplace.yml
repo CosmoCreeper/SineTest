@@ -5,7 +5,7 @@ on:
   repository_dispatch:
     types: [update-marketplace]
   schedule:
-    - cron: "*/10 * * * *" # every 10 minutes (GitHub may throttle more frequent runs)
+    - cron: "*/30 * * * *" # every 10 minutes (GitHub may throttle more frequent runs)
   push:
     branches:
       - 'main'
@@ -207,14 +207,37 @@ jobs:
           latest_content=$(echo "$latest_content" | jq '.marketplace = {}')
         fi
         
-        # Get all keys in the marketplace object
+        # First pass: Convert string values to objects
+        echo "Converting any string values to objects..."
         marketplace_keys=$(echo "$latest_content" | jq -r '.marketplace | keys[]')
-        
-        # Create a temporary file for the updated JSON
         temp_file=$(mktemp)
         echo "$latest_content" > "$temp_file"
         
-        # Process each marketplace entry
+        while IFS= read -r key; do
+          if [[ -n "$key" ]]; then
+            # Check if the value is a string
+            value_type=$(echo "$latest_content" | jq -r ".marketplace[\"$key\"] | type")
+            
+            if [[ "$value_type" == "string" ]]; then
+              echo "Converting string value for key: $key"
+              homepage_url=$(echo "$latest_content" | jq -r ".marketplace[\"$key\"]")
+              
+              # Convert string to object with homepage property
+              temp_content=$(cat "$temp_file")
+              echo "$temp_content" | jq --arg key "$key" --arg homepage "$homepage_url" \
+                '.marketplace[$key] = {homepage: $homepage}' > "$temp_file"
+              
+              echo "Converted $key from string to object with homepage: $homepage_url"
+            fi
+          fi
+        done <<< "$marketplace_keys"
+        
+        # Update latest_content with converted values
+        latest_content=$(cat "$temp_file")
+        
+        # Second pass: Process each marketplace entry (now all should be objects)
+        marketplace_keys=$(echo "$latest_content" | jq -r '.marketplace | keys[]')
+        
         while IFS= read -r key; do
           if [[ -n "$key" ]]; then
             echo "Processing marketplace entry: $key"
