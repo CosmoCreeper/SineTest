@@ -3,27 +3,27 @@
   "marketplace": {
     "advanced-tab-groups": {
       "homepage": "Anoms12/Advanced-Tab-Groups",
-      "image": "",
-      "name": "",
-      "version": "",
-      "description": "",
-      "readme": ""
+      "image": "https://raw.githubusercontent.com/Anoms12/Advanced-Tab-Groups/main/image.png",
+      "name": "Advanced Tab Groups",
+      "version": "2.0.0",
+      "description": "Advanced Tab Group CSS for Zen Browser ",
+      "readme": "https://raw.githubusercontent.com/Anoms12/Advanced-Tab-Groups/main/README.md"
     },
     "testmod": {
       "homepage": "CosmoCreeper/TestMod",
       "image": "",
-      "name": "",
+      "name": "Test Mod",
       "version": "",
-      "description": "",
+      "description": "Real Description",
       "readme": ""
     },
     "zenwallpapers": {
       "homepage": "CosmoCreeper/ZenWallpapers",
       "image": "",
-      "name": "",
-      "version": "",
-      "description": "",
-      "readme": ""
+      "name": "Zen Wallpapers",
+      "version": "1.0.0",
+      "description": "Add wallpapers to Zen",
+      "readme": "https://raw.githubusercontent.com/CosmoCreeper/ZenWallpapers/main/README.md"
     }
   }
 }
